@@ -4,11 +4,6 @@
 import numpy as np
 import gym
 import time 
-from gym import wrappers
-from keras.models import Model
-from keras.layers import Dense, Flatten, Input, concatenate
-from rl.agents import DDPGAgent
-from rl.memory import SequentialMemory
 
     
 def main():
