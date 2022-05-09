@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import tkinter
 
 
-
 class OUActionNoise:
     def __init__(self, mean, std_deviation, theta=0.15, dt=1e-2, x_initial=None):
         self.theta = theta
@@ -34,6 +33,7 @@ class OUActionNoise:
             self.x_prev = self.x_initial
         else:
             self.x_prev = np.zeros_like(self.mean)
+
 
 class Buffer:
     def __init__(self, num_states, num_actions, buffer_capacity=100000, batch_size=64):
@@ -70,7 +70,18 @@ class Buffer:
     # This provides a large speed up for blocks of code that contain many small TensorFlow operations such as this one.
     @tf.function
     def update(
-        self, state_batch, action_batch, reward_batch, next_state_batch, target_actor, target_critic, gamma, critic_model, critic_optimizer, actor_model, actor_optimizer
+        self,
+        state_batch,
+        action_batch,
+        reward_batch,
+        next_state_batch,
+        target_actor,
+        target_critic,
+        gamma,
+        critic_model,
+        critic_optimizer,
+        actor_model,
+        actor_optimizer,
     ):
         # Training and updating Actor & Critic networks.
         # See Pseudo Code.
@@ -100,7 +111,16 @@ class Buffer:
         )
 
     # We compute the loss and update parameters
-    def learn(self, target_actor, target_critic, gamma, critic_model, critic_optimizer, actor_model, actor_optimizer):
+    def learn(
+        self,
+        target_actor,
+        target_critic,
+        gamma,
+        critic_model,
+        critic_optimizer,
+        actor_model,
+        actor_optimizer,
+    ):
         # Get sampling range
         record_range = min(self.buffer_counter, self.buffer_capacity)
         # Randomly sample indices
@@ -113,7 +133,19 @@ class Buffer:
         reward_batch = tf.cast(reward_batch, dtype=tf.float32)
         next_state_batch = tf.convert_to_tensor(self.next_state_buffer[batch_indices])
 
-        self.update(state_batch, action_batch, reward_batch, next_state_batch, target_actor, target_critic, gamma, critic_model, critic_optimizer, actor_model, actor_optimizer)
+        self.update(
+            state_batch,
+            action_batch,
+            reward_batch,
+            next_state_batch,
+            target_actor,
+            target_critic,
+            gamma,
+            critic_model,
+            critic_optimizer,
+            actor_model,
+            actor_optimizer,
+        )
 
 
 # This update target parameters slowly
@@ -123,13 +155,15 @@ def update_target(target_weights, weights, tau):
     for (a, b) in zip(target_weights, weights):
         a.assign(b * tau + a * (1 - tau))
 
+
 def get_actor(num_states, upper_bound):
     # Initialize weights between -3e-3 and 3-e3
     last_init = tf.random_uniform_initializer(minval=-0.003, maxval=0.003)
 
+    # Confirmed stable with 256 and 64 neurons
     inputs = layers.Input(shape=(num_states,))
-    out = layers.Dense(256, activation="relu")(inputs)
-    out = layers.Dense(256, activation="relu")(out)
+    out = layers.Dense(64, activation="relu")(inputs)
+    out = layers.Dense(64, activation="relu")(out)
     outputs = layers.Dense(1, activation="tanh", kernel_initializer=last_init)(out)
 
     # Our upper bound is 2.0 for Pendulum.
@@ -141,25 +175,31 @@ def get_actor(num_states, upper_bound):
 def get_critic(num_states, num_actions):
     # State as input
     state_input = layers.Input(shape=(num_states))
+
+    # confirmed works for 16 and 32
     state_out = layers.Dense(16, activation="relu")(state_input)
-    state_out = layers.Dense(32, activation="relu")(state_out)
+    # state_out = layers.Dense(16, activation="relu")(state_out)
 
     # Action as input
     action_input = layers.Input(shape=(num_actions))
-    action_out = layers.Dense(32, activation="relu")(action_input)
+
+    # confirmed works for 32
+    action_out = layers.Dense(16, activation="relu")(action_input)
 
     # Both are passed through seperate layer before concatenating
     concat = layers.Concatenate()([state_out, action_out])
 
-    out = layers.Dense(256, activation="relu")(concat)
-    out = layers.Dense(256, activation="relu")(out)
+    # Confirmed stable for 256 and 64
+    out = layers.Dense(64, activation="relu")(concat)
+    out = layers.Dense(64, activation="relu")(out)
     outputs = layers.Dense(1)(out)
 
     # Outputs single value for give state-action
     model = tf.keras.Model([state_input, action_input], outputs)
 
     return model
-    
+
+
 def policy(state, noise_object, actor_model, lower_bound, upper_bound):
     sampled_actions = tf.squeeze(actor_model(state))
     noise = noise_object()
@@ -172,110 +212,158 @@ def policy(state, noise_object, actor_model, lower_bound, upper_bound):
     return [np.squeeze(legal_action)]
 
 
-
 def main():
-	problem = "Pendulum-v1"
-	env = gym.make(problem)
+    problem = "Pendulum-v0"
+    env = gym.make(problem)
 
-	num_states = env.observation_space.shape[0]
-	print("Size of State Space ->  {}".format(num_states))
-	num_actions = env.action_space.shape[0]
-	print("Size of Action Space ->  {}".format(num_actions))
+    num_states = env.observation_space.shape[0]
+    print("Size of State Space ->  {}".format(num_states))
+    num_actions = env.action_space.shape[0]
+    print("Size of Action Space ->  {}".format(num_actions))
 
-	upper_bound = env.action_space.high[0]
-	lower_bound = env.action_space.low[0]
+    upper_bound = env.action_space.high[0]
+    lower_bound = env.action_space.low[0]
 
-	print("Max Value of Action ->  {}".format(upper_bound))
-	print("Min Value of Action ->  {}".format(lower_bound))
-	
+    print("Max Value of Action ->  {}".format(upper_bound))
+    print("Min Value of Action ->  {}".format(lower_bound))
 
-	std_dev = 0.2
-	ou_noise = OUActionNoise(mean=np.zeros(1), std_deviation=float(std_dev) * np.ones(1))
+    std_dev = 0.2
+    ou_noise = OUActionNoise(
+        mean=np.zeros(1), std_deviation=float(std_dev) * np.ones(1)
+    )
 
-	actor_model = get_actor(num_states, upper_bound)
-	critic_model = get_critic(num_states, num_actions)
+    actor_model = get_actor(num_states, upper_bound)
+    critic_model = get_critic(num_states, num_actions)
 
-	target_actor = get_actor(num_states, upper_bound)
-	target_critic = get_critic(num_states, num_actions)
+    target_actor = get_actor(num_states, upper_bound)
+    target_critic = get_critic(num_states, num_actions)
 
-	# Making the weights equal initially
-	target_actor.set_weights(actor_model.get_weights())
-	target_critic.set_weights(critic_model.get_weights())
+    # Making the weights equal initially
+    target_actor.set_weights(actor_model.get_weights())
+    target_critic.set_weights(critic_model.get_weights())
 
-	# Learning rate for actor-critic models
-	critic_lr = 0.002
-	actor_lr = 0.001
+    # Learning rate for actor-critic models
+    critic_lr = 0.002
+    actor_lr = 0.001
 
-	critic_optimizer = tf.keras.optimizers.Adam(critic_lr)
-	actor_optimizer = tf.keras.optimizers.Adam(actor_lr)
+    critic_optimizer = tf.keras.optimizers.Adam(critic_lr)
+    actor_optimizer = tf.keras.optimizers.Adam(actor_lr)
 
-	total_episodes = 100
-	# Discount factor for future rewards
-	gamma = 0.99
-	# Used to update target networks
-	tau = 0.005
-	
-	buffer = Buffer(num_states, num_actions, 50000, 64)
-	
-	# To store reward history of each episode
-	ep_reward_list = []
-	# To store average reward history of last few episodes
-	avg_reward_list = []
+    total_episodes = 100
+    # Discount factor for future rewards
+    gamma = 0.99
+    # Used to update target networks
+    tau = 0.005
 
-	# Takes about 4 min to train
-	for ep in range(total_episodes):
+    buffer = Buffer(num_states, num_actions, 50000, 64)
 
-		prev_state = env.reset()
-		episodic_reward = 0
+    # To store reward history of each episode
+    ep_reward_list = []
+    # To store average reward history of last few episodes
+    avg_reward_list = []
 
-		while True:
-		    # Uncomment this to see the Actor in action
-		    # But not in a python notebook.
-		    env.render()
+    # Takes about 4 min to train
+    for ep in range(total_episodes):
 
-		    tf_prev_state = tf.expand_dims(tf.convert_to_tensor(prev_state), 0)
+        prev_state = env.reset()
+        episodic_reward = 0
 
-		    action = policy(tf_prev_state, ou_noise, actor_model, lower_bound, upper_bound)
-		    print(action)
-		    # Recieve state and reward from environment.
-		    state, reward, done, info = env.step(action)
-		    print(state)
+        while True:
+            # Uncomment this to see the Actor in action
+            # But not in a python notebook.
+            env.render()
 
-		    buffer.record((prev_state, action, reward, state))
-		    episodic_reward += reward
+            tf_prev_state = tf.expand_dims(tf.convert_to_tensor(prev_state), 0)
 
-		    buffer.learn(target_actor, target_critic, gamma, critic_model, critic_optimizer, actor_model, actor_optimizer)
-		    update_target(target_actor.variables, actor_model.variables, tau)
-		    update_target(target_critic.variables, critic_model.variables, tau)
+            action = policy(
+                tf_prev_state, ou_noise, actor_model, lower_bound, upper_bound
+            )
+            print(action)
+            # Recieve state and reward from environment.
+            state, reward, done, info = env.step(action)
+            print(state)
 
-		    # End this episode when `done` is True
-		    if done:
-		        break
+            buffer.record((prev_state, action, reward, state))
+            episodic_reward += reward
 
-		    prev_state = state
+            buffer.learn(
+                target_actor,
+                target_critic,
+                gamma,
+                critic_model,
+                critic_optimizer,
+                actor_model,
+                actor_optimizer,
+            )
+            update_target(target_actor.variables, actor_model.variables, tau)
+            update_target(target_critic.variables, critic_model.variables, tau)
 
-		ep_reward_list.append(episodic_reward)
+            # End this episode when `done` is True
+            if done:
+                break
 
-		# Mean of last 40 episodes
-		avg_reward = np.mean(ep_reward_list[-40:])
-		print("Episode * {} * Avg Reward is ==> {}".format(ep, avg_reward))
-		avg_reward_list.append(avg_reward)
+            prev_state = state
 
-	matplotlib.use('TkAgg')
-	# Plotting graph
-	# Episodes versus Avg. Rewards
-	plt.plot(avg_reward_list)
-	plt.xlabel("Episode")
-	plt.ylabel("Avg. Epsiodic Reward")
-	plt.show()
+        ep_reward_list.append(episodic_reward)
 
-	# Save the weights
-	actor_model.save_weights("pendulum_actor.h5")
-	critic_model.save_weights("pendulum_critic.h5")
+        # Mean of last 40 episodes
+        avg_reward = np.mean(ep_reward_list[-40:])
+        print("Episode * {} * Avg Reward is ==> {}".format(ep, avg_reward))
+        avg_reward_list.append(avg_reward)
 
-	target_actor.save_weights("pendulum_target_actor.h5")
-	target_critic.save_weights("pendulum_target_critic.h5")
-	
-	
+    print("TRAINED")
+
+    with open("ddpg_trained.txt", "w") as f:
+        num_episodes = 50
+        count = 0
+        while count < num_episodes:
+
+            prev_state = env.reset()
+            episodic_reward = 0
+
+            while True:
+                # Uncomment this to see the Actor in action
+                # But not in a python notebook.
+                env.render()
+
+                tf_prev_state = tf.expand_dims(tf.convert_to_tensor(prev_state), 0)
+
+                action = policy(
+                    tf_prev_state, ou_noise, actor_model, lower_bound, upper_bound
+                )
+                # print(action)
+                # Recieve state and reward from environment.
+                state, reward, done, info = env.step(action)
+                # print(state)
+
+                # buffer.record((prev_state, action, reward, state))
+                episodic_reward += reward
+
+                # End this episode when `done` is True
+                if done:
+                    break
+                f.write(
+                    f"{prev_state[0]} {prev_state[1]} {prev_state[2]} {action[0]}\n"
+                )
+                prev_state = state
+            print(episodic_reward)
+            count += 1
+
+    matplotlib.use("TkAgg")
+    # Plotting graph
+    # Episodes versus Avg. Rewards
+    plt.plot(avg_reward_list)
+    plt.xlabel("Episode")
+    plt.ylabel("Avg. Epsiodic Reward")
+    plt.show()
+
+    # Save the weights
+    actor_model.save_weights("pendulum_actor.h5")
+    critic_model.save_weights("pendulum_critic.h5")
+
+    target_actor.save_weights("pendulum_target_actor.h5")
+    target_critic.save_weights("pendulum_target_critic.h5")
+
+
 if __name__ == "__main__":
     main()
