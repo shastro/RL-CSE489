@@ -249,7 +249,7 @@ def main():
     critic_optimizer = tf.keras.optimizers.Adam(critic_lr)
     actor_optimizer = tf.keras.optimizers.Adam(actor_lr)
 
-    total_episodes = 100
+    total_episodes = 150
     # Discount factor for future rewards
     gamma = 0.99
     # Used to update target networks
@@ -313,8 +313,8 @@ def main():
 
     print("TRAINED")
 
-    with open("ddpg_trained.txt", "w") as f:
-        num_episodes = 50
+    with open("ddpg_trained_single.txt", "w") as f:
+        num_episodes = 1
         count = 0
         while count < num_episodes:
 
